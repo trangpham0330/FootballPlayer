@@ -178,8 +178,6 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
           speed_line_queue[id] = []
         color = compute_color_for_labels(object_id[i])
         obj_name = names[object_id[i]]
-        if obj_name=="person":
-            obj_name="Player"
         label = (obj_name)
 
         # add center to buffer
