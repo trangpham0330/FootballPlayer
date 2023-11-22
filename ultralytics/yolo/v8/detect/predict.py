@@ -5,7 +5,7 @@ import torch
 import argparse
 import time
 from pathlib import Path
-import math
+
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
@@ -13,7 +13,7 @@ from numpy import random
 from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
-from ultralytics.yolo.utils.plotting import Annotator
+from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
 import cv2
 from deep_sort_pytorch.utils.parser import get_config
@@ -24,20 +24,6 @@ palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 data_deque = {}
 
 deepsort = None
-
-line = [(100, 500), (1050, 500)]
-speed_line_queue = {}
-def estimatespeed(Location1, Location2):
-    #Euclidean Distance Formula
-    d_pixel = math.sqrt(math.pow(Location2[0] - Location1[0], 2) + math.pow(Location2[1] - Location1[1], 2))
-    # defining thr pixels per meter
-    ppm = 8
-    d_meters = d_pixel/ppm
-    time_constant = 15*3.6
-    #distance = speed/time
-    speed = d_meters * time_constant
-
-    return int(speed)
 
 def init_tracker():
     global deepsort
@@ -61,6 +47,18 @@ def xyxy_to_xywh(*xyxy):
     w = bbox_w
     h = bbox_h
     return x_c, y_c, w, h
+
+def xyxy_to_tlwh(bbox_xyxy):
+    tlwh_bboxs = []
+    for i, box in enumerate(bbox_xyxy):
+        x1, y1, x2, y2 = [int(i) for i in box]
+        top = x1
+        left = y1
+        w = int(x2 - x1)
+        h = int(y2 - y1)
+        tlwh_obj = [top, left, w, h]
+        tlwh_bboxs.append(tlwh_obj)
+    return tlwh_bboxs
 
 def compute_color_for_labels(label):
     """
@@ -123,35 +121,9 @@ def UI_box(x, img, color=None, label=None, line_thickness=None):
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 
-def intersect(A,B,C,D):
-    return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
 
-def ccw(A,B,C):
-    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
-
-
-def get_direction(point1, point2):
-    direction_str = ""
-
-    # calculate y axis direction
-    if point1[1] > point2[1]:
-        direction_str += "South"
-    elif point1[1] < point2[1]:
-        direction_str += "North"
-    else:
-        direction_str += ""
-
-    # calculate x axis direction
-    if point1[0] > point2[0]:
-        direction_str += "East"
-    elif point1[0] < point2[0]:
-        direction_str += "West"
-    else:
-        direction_str += ""
-
-    return direction_str
 def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
-    cv2.line(img, line[0], line[1], (46,162,112), 3)
+    #cv2.line(img, line[0], line[1], (46,162,112), 3)
 
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
@@ -175,24 +147,12 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
         # create new buffer for new object
         if id not in data_deque:  
           data_deque[id] = deque(maxlen= 64)
-          speed_line_queue[id] = []
         color = compute_color_for_labels(object_id[i])
         obj_name = names[object_id[i]]
-        label = (obj_name)
+        label = '{}{:d}'.format("", id) + ":"+ '%s' % (obj_name)
 
         # add center to buffer
         data_deque[id].appendleft(center)
-        if len(data_deque[id]) >= 2:
-          direction = get_direction(data_deque[id][0], data_deque[id][1])
-          object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
-          speed_line_queue[id].append(object_speed)
-          if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
-              cv2.line(img, line[0], line[1], (255, 255, 255), 3)
-
-        try:
-            label = label + " " + str(sum(speed_line_queue[id])//len(speed_line_queue[id])) + "km/h"
-        except:
-            pass
         UI_box(box, img, label=label, color=color, line_thickness=2)
         # draw trail
         for i in range(1, len(data_deque[id])):
@@ -203,7 +163,6 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
             thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
             # draw trails
             cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
-    
     return img
 
 
